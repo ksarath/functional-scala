@@ -5,14 +5,14 @@ lazy val functionalScala = (project in file(".")).
     name          := "Functional Scala",
     organization  := "net.degoes",
     version       := "0.1-SNAPSHOT",
-    scalaVersion  := "2.12.6",
+    scalaVersion  := "2.12.10",
     initialCommands in Compile in console := """
                                                |import scalaz._
                                                |import net.degoes._
     """.stripMargin
   )
 
-scalaVersion := "2.12.6"
+scalaVersion := "2.12.10"
 
 addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.6")
 
@@ -71,7 +71,7 @@ libraryDependencies ++= Seq(
   //h2
   "com.h2database" % "h2" % H2Version,
   // Ammonite
-  "com.lihaoyi" % "ammonite" % "1.1.2" % "test" cross CrossVersion.full
+  "com.lihaoyi" % "ammonite" % "1.8.1" % "test" cross CrossVersion.full
 )
 
 resolvers ++= Seq(

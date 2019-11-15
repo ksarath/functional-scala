@@ -15,7 +15,7 @@ object algebra {
   //
   implicit val StringSemigroup: Semigroup[String] =
     new Semigroup[String] {
-      def append(l: String, r: => String): String = ???
+      def append(l: String, r: => String): String = l ++ r
     }
 
   //
@@ -26,8 +26,10 @@ object algebra {
   case class NotEmpty[+A](head: A, tail: Option[NotEmpty[A]])
   implicit def NotEmptySemigroup[A]: Semigroup[NotEmpty[A]] =
     new Semigroup[NotEmpty[A]] {
-      def append(l: NotEmpty[A], r: => NotEmpty[A]): NotEmpty[A] =
-        ???
+      def append(l: NotEmpty[A], r: => NotEmpty[A]): NotEmpty[A] = l match {
+        case NotEmpty(head, Some(x)) => NotEmpty(head, Some(append(x, r)))
+        case NotEmpty(head, None) => NotEmpty(head, Some(r))
+      }
     }
   val example1 = NotEmpty(1, None) |+| NotEmpty(2, None)
 
@@ -39,7 +41,7 @@ object algebra {
   final case class Max(value: Int)
   implicit val MaxSemigroup: Semigroup[Max] =
     new Semigroup[Max] {
-      def append(l: Max, r: => Max): Max = ???
+      def append(l: Max, r: => Max): Max = Max(Math.max(l.value,r.value))
     }
 
   //
@@ -51,7 +53,7 @@ object algebra {
   object Last {
     implicit def LastSemigroup[A]: Semigroup[Last[A]] =
       new Semigroup[Last[A]] {
-        def append(l: Last[A], r: => Last[A]): Last[A] = ???
+        def append(l: Last[A], r: => Last[A]): Last[A] = r
       }
   }
   final case class First[A](value: A)
@@ -71,10 +73,10 @@ object algebra {
     new Semigroup[Option[A]] {
       def append(l: Option[A], r: => Option[A]): Option[A] =
         (l, r) match {
-          case (None, None)       => ???
-          case (Some(l), None)    => ???
-          case (None, Some(r))    => ???
-          case (Some(l), Some(r)) => ???
+          case (None, None)       => None
+          case (Some(l), None)    => Some(l)
+          case (None, Some(r))    => Some(r)
+          case (Some(l), Some(r)) => Some(l |+| r)
         }
     }
 
@@ -86,7 +88,7 @@ object algebra {
   //
   implicit def SemigroupTuple2[A: Semigroup, B: Semigroup]: Semigroup[(A, B)] = new Semigroup[(A, B)] {
     def append(l: (A, B), r: => (A, B)): (A, B) =
-      ???
+      (l._1 |+| r._1, l._2 |+| r._2)
   }
 
   //
@@ -98,8 +100,13 @@ object algebra {
   object Conj {
     implicit val ConjMonoid: Monoid[Conj] =
       new Monoid[Conj] {
-        def zero: Conj                        = ???
-        def append(l: Conj, r: => Conj): Conj = ???
+        def zero: Conj                        = Conj(true)
+        def append(l: Conj, r: => Conj): Conj = (l,r) match {
+          case (Conj(false), Conj(false)) => Conj(false)
+          case (Conj(false), Conj(true)) => Conj(false)
+          case (Conj(true), Conj(false)) => Conj(false)
+          case (Conj(true), Conj(true)) => Conj(true)
+        }
       }
   }
 
@@ -112,8 +119,13 @@ object algebra {
   object Disj {
     implicit val DisjMonoid: Monoid[Disj] =
       new Monoid[Disj] {
-        def zero: Disj                        = ???
-        def append(l: Disj, r: => Disj): Disj = ???
+        def zero: Disj                        = Disj(false)
+        def append(l: Disj, r: => Disj): Disj = (l,r) match {
+          case (Disj(false), Disj(false)) => Disj(false)
+          case (Disj(false), Disj(true)) => Disj(true)
+          case (Disj(true), Disj(false)) => Disj(true)
+          case (Disj(true), Disj(true)) => Disj(true)
+        }
       }
   }
 
@@ -127,9 +139,17 @@ object algebra {
     new Monoid[scala.util.Try[A]] {
       import scala.util._
 
-      def zero: Try[A] = ???
+      def zero: Try[A] = Failure(ZeroThrowable)
 
-      def append(l: Try[A], r: => Try[A]): Try[A] = ???
+      def append(l: Try[A], r: => Try[A]): Try[A] = 
+      (l, r) match {
+        case (Success(l), Success(r)) => Success(l |+| r)
+        case (Success(l), Failure(r)) => Success(l)
+        case (Failure(l), Success(r)) => Success(r)
+        case (Failure(ZeroThrowable), Failure(r)) => Failure(r)
+        case (Failure(l), Failure(ZeroThrowable)) => Failure(l)
+        case (Failure(l), Failure(r)) => Failure(r)
+      }
     }
 
   //
@@ -139,9 +159,15 @@ object algebra {
   //
   def MonoidMap[K, V: Semigroup]: Monoid[Map[K, V]] =
     new Monoid[Map[K, V]] {
-      def zero: Map[K, V] = ???
+      def zero: Map[K, V] = zero.empty
 
-      def append(l: Map[K, V], r: => Map[K, V]): Map[K, V] = ???
+      def append(l: Map[K, V], r: => Map[K, V]): Map[K, V] = 
+        r.foldLeft(l) { case (map, (k, v)) =>
+          map.get(k) match { 
+            case Some(v2) => map + (k -> (v |+| v2))
+            case None => map
+          }
+        }
     }
 
   //
@@ -224,7 +250,10 @@ object functor {
   final case class Fork[A](left: BTree[A], right: BTree[A]) extends BTree[A]
   implicit val BTreeFunctor: Functor[BTree] =
     new Functor[BTree] {
-      def map[A, B](fa: BTree[A])(f: A => B): BTree[B] = ???
+      def map[A, B](fa: BTree[A])(f: A => B): BTree[B] = fa match {
+        case Leaf(a) => Leaf(f(a))
+        case Fork(left, right) => Fork(map(left)(f), map(right)(f))
+      }
     }
 
   //
@@ -232,7 +261,10 @@ object functor {
   //
   // Define an instance of `Functor` for `Nothing`.
   //
-  implicit val NothingFunctor: Functor[Nothing] = ???
+  implicit val NothingFunctor: Functor[Nothing] = 
+    new Functor[Nothing] {
+      def map[A, B](fa: Nothing)(f: A => B): Nothing = fa
+    }
 
   //
   // EXERCISE 3
@@ -241,7 +273,10 @@ object functor {
   //
   def ParserFunctor[E]: Functor[Parser[E, ?]] =
     new Functor[Parser[E, ?]] {
-      def map[A, B](fa: Parser[E, A])(f: A => B): Parser[E, B] = ???
+      def map[A, B](fa: Parser[E, A])(f: A => B): Parser[E, B] = 
+        Parser[E,B](input => fa.run(input).map {
+          case (input, a) => ???
+        })
     }
   final case class Parser[+E, +A](run: String => Either[E, (String, A)])
   object Parser {
@@ -364,7 +399,7 @@ object functor {
       def map[A, B](fa: List[A])(f: A => B): List[B] =
         fa map f
 
-      def zip[A, B](l: List[A], r: List[B]): List[(A, B)] = ???
+      def zip[A, B](l: List[A], r: List[B]): List[(A, B)] = l.flatMap(l => r.map(r => (l, r)))
     }
 
   //
@@ -378,7 +413,15 @@ object functor {
         fa map f
 
       def zip[A, B](l: Parser[E, A], r: Parser[E, B]): Parser[E, (A, B)] =
-        ???
+        Parser[E, (A, B)] {
+          input => l.run(input) match {
+            case Left(e) => Left(e)
+            case Right((input, a)) => r.run(input) match {
+              case Left(e) => Left(e)
+              case Right((input, b)) => Right((input, (a,b)))
+            }
+          }
+        }
     }
 
   //
@@ -393,7 +436,8 @@ object functor {
 
       def map[A, B](fa: Future[A])(f: A => B): Future[B] = fa map f
 
-      def zip[A, B](l: Future[A], r: Future[B]): Future[(A, B)] = ???
+      def zip[A, B](l: Future[A], r: Future[B]): Future[(A, B)] = 
+        l.flatMap(a => r.map(b => (a, b)))
     }
 
   //
@@ -403,7 +447,7 @@ object functor {
   //
   val OptionApplicative: Applicative[Option] =
     new Applicative[Option] {
-      def point[A](a: => A): Option[A] = ???
+      def point[A](a: => A): Option[A] = Some(a)
 
       def zip[A, B](fa: Option[A], fb: Option[B]): Option[(A, B)] = ???
 
@@ -449,9 +493,12 @@ object functor {
   //
   implicit val MonadBTree: Monad[BTree] =
     new Monad[BTree] {
-      def point[A](a: => A): BTree[A] = ???
+      def point[A](a: => A): BTree[A] = Leaf(a)
 
-      def bind[A, B](fa: BTree[A])(f: A => BTree[B]): BTree[B] = ???
+      def bind[A, B](fa: BTree[A])(f: A => BTree[B]): BTree[B] = fa match {
+        case Leaf(a) => f(a)
+        case Fork(l, r) => Fork(bind(l)(f), bind(r)(f))
+      }
     }
 
   //
@@ -464,7 +511,13 @@ object functor {
       def point[A](a: => A): Parser[E, A] =
         Parser[E, A](s => Right((s, a)))
 
-      def bind[A, B](fa: Parser[E, A])(f: A => Parser[E, B]): Parser[E, B] = ???
+      def bind[A, B](fa: Parser[E, A])(f: A => Parser[E, B]): Parser[E, B] = 
+        Parser[E, B] { input => 
+          fa.run(input) match {
+            case Left(e) => Left(e)
+            case Right((input, a)) => f(a).run(input)
+          }
+        }
     }
 
   //
@@ -518,9 +571,21 @@ object parser {
       flatMap(f.andThen(Parser.succeed[B](_)))
 
     def flatMap[E1 >: E, B](f: A => Parser[E1, B]): Parser[E1, B] =
-      ???
+      Parser[E1, B] {
+        input => 
+          self.run(input) match {
+            case Left(e) => Left(e)
+            case Right(b) => ???
+          }
+      }
 
-    def orElse[E2, B](that: => Parser[E2, B]): Parser[E2, Either[A, B]] = ???
+    def orElse[E2, B](that: => Parser[E2, B]): Parser[E2, Either[A, B]] = 
+      Parser[E2, Either[A, B]] { input =>
+        self.run(input) match {
+          case Left(_) => that.map(Right(_)).run(input)
+          case Right((input, a)) => Right((input, Left(a)))
+        }
+      }
 
     def filter[E1 >: E](e0: E1)(f: A => Boolean): Parser[E1, A] =
       Parser(
@@ -593,17 +658,21 @@ object parser {
 }
 
 object foldable {
-  //
+//
   // EXERCISE 1
   //
   // Define an instance of `Foldable` for `List`
   //
   implicit val FoldableList: Foldable[List] = new Foldable[List] {
-    def foldMap[A, B: Monoid](fa: List[A])(f: A => B): B = 
-      ???
+    def foldMap[A, B: Monoid](fa: List[A])(f: A => B): B = fa match {
+      case Nil => Monoid[B].zero
+      case a :: as => f(a) |+| foldMap(as)(f)
+    }
 
-    def foldRight[A, B](fa: List[A], z: => B)(f: (A, => B) => B): B = 
-      ???
+    def foldRight[A, B](fa: List[A], z: => B)(f: (A, => B) => B): B = fa match {
+      case Nil => z
+      case a :: as => f(a, foldRight(as, z)(f))
+    }
   }
 
   //
@@ -616,11 +685,15 @@ object foldable {
   final case class Fork[A](left: BTree[A], right: BTree[A]) extends BTree[A]
   implicit val FoldableBTree: Foldable[BTree] =
     new Foldable[BTree] {
-      def foldMap[A, B: Monoid](fa: BTree[A])(f: A => B): B =
-        ???
+      def foldMap[A, B: Monoid](fa: BTree[A])(f: A => B): B = fa match {
+        case Leaf(a) => f(a)
+        case Fork(left, right) => foldMap(left)(f) |+| foldMap(right)(f)
+      }
 
-      def foldRight[A, B](fa: BTree[A], z: => B)(f: (A, => B) => B): B =
-        ???
+      def foldRight[A, B](fa: BTree[A], z: => B)(f: (A, => B) => B): B = fa match {
+        case Leaf(a) => f(a, z)
+        case Fork(left, right) => foldRight(left, foldRight(right, z)(f))(f)
+      }
     }
   val btree: BTree[String] = Fork(Leaf("foo"), Fork(Leaf("bar"), Leaf("baz")))
 
@@ -762,7 +835,10 @@ object optics {
     get: S => A,
     set: A => (S => S)
   ) { self =>
-    def ⋅[B](that: Lens[A, B]): Lens[S, B] = ???
+    def ⋅[B](that: Lens[A, B]): Lens[S, B] = Lens[S, B](
+      get = self.get andThen that.get, 
+      set = (b: B) => (s: S) => self.set(that.set(b)(self.get(s)))(s)
+    )
 
     def ⋅[B](that: Optional[A, B]): Optional[S, B] = ???
 
@@ -790,15 +866,21 @@ object optics {
   import Org.site
   import Site.manager
   import Employee.salary
-  lazy val org2_lens: Org = ???
+  // site ⋅ manager ⋅ salary): Lens[Org, BigDecimal]
+  lazy val org2_lens: Org = (site ⋅ manager ⋅ salary).updated(_ * 0.95)(org)
 
+  site.updated(site => site)(org)
   //
   // EXERCISE 3
   //
   // Implement `⋅` for `Prism` for `Prism`.
   //
   final case class Prism[S, A](get: S => Option[A], set: A => S) { self =>
-    def ⋅[B](that: Prism[A, B]): Prism[S, B] = ???
+    def ⋅[B](that: Prism[A, B]): Prism[S, B] = 
+    Prism[S, B](
+      get = self.get(_).flatMap(that.get),
+      set = that.set andThen self.set
+    )
 
     def ⋅[B](that: Lens[A, B]): Optional[S, B] = ???
 
@@ -806,6 +888,8 @@ object optics {
 
     final def select(implicit ev: Unit =:= A): S =
       set(ev(()))
+    final def updated(f: A => A): S => S = 
+      (s: S) => self.get(s).fold(s)(self.set compose f)
   }
 
   //
@@ -813,8 +897,23 @@ object optics {
   //
   // Implement `_Left` and `_Right`.
   //
-  def _Left[A, B]: Prism[Either[A, B], A]  = ???
-  def _Right[A, B]: Prism[Either[A, B], B] = ???
+  def _Left[A, B]: Prism[Either[A, B], A]  =
+    Prism[Either[A, B], A](
+      get = {
+        case Left(a) => Some(a);
+        case _ => None
+      },
+      set = (a: A) => Left(a)
+    )
+
+  def _Right[A, B]: Prism[Either[A, B], B] =
+    Prism[Either[A, B], B](
+      get = {
+        case Right(b) => Some(b);
+        case _ => None
+      },
+      set = (b: B) => Right(b)
+    )
 
   //
   // EXERCISE 5
@@ -853,7 +952,7 @@ object optics {
   //
   // Set the country of `org` using a `Prism`.
   //
-  (Org.site ⋅ Site.address ⋅ Address.country ⋅ Country.usa)
+  (Org.site ⋅ Site.address ⋅ Address.country ⋅ Country.usa).set(())(org) // set to USA as it doesn't take any parameters
 }
 
 object recursion {
